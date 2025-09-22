@@ -43,7 +43,13 @@ class ScoopManifestGenerator:
         for asset in assets:
             name = asset['name'].lower()
             if 'windows' in name or 'win' in name or name.endswith('.exe'):
-                if 'x64' in name or 'amd64' in name or 'x86_64' in name:
+                    if 'x64' in name or 'amd64' in name or 'x86_64' in name:
+                        # Используем #/rename для переименования файла при скачивании
+                    url = asset['browser_download_url']
+                    if asset['name'].endswith('.exe'):
+                        # Переименовываем в простое имя
+                        app_name = url.split('/')[-4]  # получаем имя репо
+                        url += f"#/{app_name}.exe"
                     windows_assets['64bit'] = asset['browser_download_url']
                 elif 'x86' in name or 'i686' in name or '32' in name:
                     windows_assets['32bit'] = asset['browser_download_url']
