@@ -1,0 +1,21 @@
+{
+    "version": "8.1.1",
+    "description": "## patch release 8.1.1\r",
+    "homepage": "https://github.com/ikatson/rqbit",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/ikatson/rqbit/releases/download/v8.1.1/rqbit.exe",
+            "hash": "31bc4a9ce1699d97b8809432b211b2b9306fbc8ecfb3ed3f582f590f08f73960",
+            "bin": "rqbit.exe"
+        }
+    },
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/ikatson/rqbit/releases/download/v$version/rqbit.exe"
+            }
+        }
+    }
+}
