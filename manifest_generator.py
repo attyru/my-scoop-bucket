@@ -18,11 +18,18 @@ class ScoopManifestGenerator:
     
     def get_latest_release(self, repo: str) -> Dict[str, Any]:
         """Получает информацию о последнем релизе"""
-        url = f"https://api.github.com/repos/{repo}/releases/latest"
+        url = f"https://api.github.com/repos/{repo}/releases"
+        # if not include_prerelease:
+            # url += "/latest"
+        # else:
+        # Получаем все релизы, включая pre-release
+        response = self.session.get(url)
+        releases = response.json()
+        return releases[0]  # первый = самый свежий
         response = self.session.get(url)
         response.raise_for_status()
         return response.json()
-    
+            
     def get_file_hash(self, url: str) -> str:
         """Скачивает файл и вычисляет SHA256"""
         print(f"Downloading and hashing: {url}")
@@ -43,8 +50,8 @@ class ScoopManifestGenerator:
         for asset in assets:
             name = asset['name'].lower()
             if 'windows' in name or 'win' in name or name.endswith('.exe'):
-                    if 'x64' in name or 'amd64' in name or 'x86_64' in name:
-                        # Используем #/rename для переименования файла при скачивании
+                if 'x64' in name or 'amd64' in name or 'x86_64' in name:
+                    # Используем #/rename для переименования файла при скачивании
                     url = asset['browser_download_url']
                     if asset['name'].endswith('.exe'):
                         # Переименовываем в простое имя
