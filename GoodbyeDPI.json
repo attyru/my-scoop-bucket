@@ -1,0 +1,10 @@
+{
+  "version": "0.2.3rc3",
+  "description": "Release candidate 3.\r",
+  "homepage": "https://github.com/ValdikSS/GoodbyeDPI",
+  "license": "Unknown",
+  "notes": "Release candidate 3.\r\n\r\nBugfixes: \r\n\r\n* [Fix crash due to missing second parameter in fake_load_random function](https://github.com/ValdikSS/GoodbyeDPI/commit/cb9cc82fde7ee43851856f99ec0666bc1d474f3a)\r\n\r\nKnown bugs:\r\n* Blacklist option may inconsistently work with Kyber enabled, but should at least work fine without blacklist now. See #330\r\n\r\n# [Обход замедления YouTube в России](https://github.com/ValdikSS/GoodbyeDPI/issues/378)\r\n\r\n_The `-2` version have been repackaged. It is the same release as `goodbyedpi-0.2.3rc3.zip`, the only difference is in YouTube .cmd files._",
+  "url": "https://github.com/ValdikSS/GoodbyeDPI/releases/download/0.2.3rc3/goodbyedpi-0.2.3rc3-2.zip",
+  "hash": "37f96b32d050dadcc930a639eba68e1ccd57ed5c04a5f77dfca908f01905a4c5",
+  "bin": "GoodbyeDPI.exe"
+}

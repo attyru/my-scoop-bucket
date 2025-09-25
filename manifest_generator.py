@@ -5,11 +5,13 @@ import requests
 from pathlib import Path
 from typing import Dict, Any, Optional
 import sys
+import logging
+import re
 
 class ScoopManifestGenerator:
     def __init__(self, github_token: Optional[str] = None):
         self.session = requests.Session()
-        self.session.timeout = 30  # [AI-FIX: Add default timeout for requests to prevent hanging on slow connections]
+        self.session.timeout = 30
         if github_token:
             self.session.headers.update({
                 'Authorization': f'token {github_token}',
@@ -19,113 +21,117 @@ class ScoopManifestGenerator:
     def get_latest_release(self, repo: str) -> Dict[str, Any]:
         """Получает информацию о последнем релизе"""
         url = f"https://api.github.com/repos/{repo}/releases"
-        # if not include_prerelease:
-            # url += "/latest"
-        # else:
-        # Получаем все релизы, включая pre-release
-        response = self.session.get(url)
-        releases = response.json()
-        return releases[0]  # первый = самый свежий
         response = self.session.get(url)
         response.raise_for_status()
-        return response.json()
+        releases = response.json()
+        if not releases:
+            raise ValueError("No releases found for the repository")
+        return releases[0]  # первый = самый свежий
             
     def get_file_hash(self, url: str) -> str:
         """Скачивает файл и вычисляет SHA256"""
-        print(f"Downloading and hashing: {url}")
+        logging.info(f"Downloading and hashing: {url}")
         response = self.session.get(url, stream=True)
         response.raise_for_status()
         
+        content_length = response.headers.get('Content-Length')
+        if content_length and int(content_length) > 100 * 1024 * 1024:  # 100MB limit
+            raise ValueError(f"File too large: {content_length} bytes")
+        
         sha256_hash = hashlib.sha256()
         for chunk in response.iter_content(chunk_size=8192):
-            if chunk:  # [AI-FIX: Skip empty chunks to avoid updating hash with empty data]
+            if chunk:
                 sha256_hash.update(chunk)
         
         return sha256_hash.hexdigest()
     
     def find_windows_assets(self, assets: list) -> Dict[str, str]:
         """Находит Windows бинарники в релизе"""
-        windows_assets = {}
+        
+        win_assets = {}
         
         for asset in assets:
             name = asset['name'].lower()
-            if 'windows' in name or 'win' in name or name.endswith('.exe'):
-                if 'x64' in name or 'amd64' in name or 'x86_64' in name:
-                    # Используем #/rename для переименования файла при скачивании
-                    url = asset['browser_download_url']
-                    if asset['name'].endswith('.exe'):
-                        # Переименовываем в простое имя
-                        app_name = url.split('/')[-4]  # получаем имя репо
-                        url += f"#/{app_name}.exe"
-                    windows_assets['64bit'] = asset['browser_download_url']
-                elif 'x86' in name or 'i686' in name or '32' in name:
-                    windows_assets['32bit'] = asset['browser_download_url']
-                else:
-                    windows_assets['64bit'] = asset['browser_download_url']  # default
+            
+            # Только windows файлы
+            is_windows = name.endswith('.exe') or name.endswith('.zip')
+            
+            if not is_windows:
+                continue
+                
+            url = asset['browser_download_url']
+            
+            # # Определяем архитектуру регексами
+            if re.search(r'amd64-v3|x86_64-v3', name):
+                win_assets['64bit-v3'] = url
+            elif re.search(r'amd64|x86_64', name):
+                win_assets['64bit'] = url
+            elif re.search(r'x86', name):
+                win_assets['32bit'] = url
+            elif re.search(r'arm64|arm32|armv7', name):
+                continue
+            else:
+                win_assets['unknown'] = url
         
-        return windows_assets
+        return win_assets
     
-    def generate_manifest(self, repo: str, app_name: str = None, bin_name: str = None) -> Dict[str, Any]:
+    def generate_manifest(self, repo: str, app_name: Optional[str] = None, bin_name: Optional[str] = None) -> Dict[str, Any]:
         """Генерирует манифест для Scoop"""
         release = self.get_latest_release(repo)
         
+        # Определяем имена
         if not app_name:
             app_name = repo.split('/')[-1]
-        
         if not bin_name:
             bin_name = f"{app_name}.exe"
         
-        version = release['tag_name'].lstrip('v')
-        assets = self.find_windows_assets(release['assets'])
+        # Находим Windows ассеты
+        windows_assets = self.find_windows_assets(release['assets'])
         
-        if not assets:
-            raise ValueError(f"No Windows assets found in {repo}")
+        if not windows_assets:
+            raise ValueError("No Windows assets found in the release")
         
+        license_info = release.get('license', {}).get('spdx_id', 'Unknown') if release.get('license') else 'Unknown'
+        
+        # Базовая структура манифеста
         manifest = {
-            "version": version,
-            "description": release.get('body', f"{app_name} - {release['name']}").split('\n')[0],
+            "version": release['tag_name'].lstrip('v'),
+            "description": release.get('body', '').split('\n')[0][:100] if release.get('body') else f"{app_name} - GitHub release",
             "homepage": f"https://github.com/{repo}",
-            "license": "MIT",  # TODO: auto-detect from repo
-            "architecture": {}
+            "license": license_info,
+            "notes": release.get('body', ''),
         }
         
-        # Генерируем архитектуры с хешами
-        for arch, url in assets.items():
-            file_hash = self.get_file_hash(url)
-            manifest["architecture"][arch] = {
+        # Добавляем архитектуры и хеши
+        if len(windows_assets) == 1:
+            # Только одна архитектура
+            arch, url = next(iter(windows_assets.items()))
+            manifest.update({
                 "url": url,
-                "hash": file_hash,
+                "hash": self.get_file_hash(url),
                 "bin": bin_name
-            }
-        
-        # Автообновление
-        if len(assets) == 1:
-            # Один файл - простая схема
-            arch = list(assets.keys())[0]
-            url_template = assets[arch].replace(version, "$version")
-            manifest["checkver"] = "github"
-            manifest["autoupdate"] = {
-                "architecture": {
-                    arch: {"url": url_template}
-                }
-            }
+            })
         else:
             # Несколько архитектур
-            manifest["checkver"] = "github"
-            manifest["autoupdate"] = {"architecture": {}}
-            for arch, url in assets.items():
-                url_template = url.replace(version, "$version")
-                manifest["autoupdate"]["architecture"][arch] = {"url": url_template}
+            manifest["architecture"] = {}
+            for arch, url in windows_assets.items():
+                manifest["architecture"][arch] = {
+                    "url": url,
+                    "hash": self.get_file_hash(url),
+                    "bin": bin_name
+                }
         
         return manifest
     
-    def save_manifest(self, manifest: Dict[str, Any], filename: str):
-        """Сохраняет манифест в JSON файл"""
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(manifest, f, indent=4, ensure_ascii=False)
-        print(f"✓ Saved manifest: {filename}")
+    def save_manifest(self, manifest: Dict[str, Any], filename: str) -> None:
+        """Сохраняет манифест в файл"""
+        safe_filename = Path(filename).name  # Only take the basename
+        with open(safe_filename, 'w', encoding='utf-8') as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
+        logging.info(f"✓ Saved manifest: {safe_filename}")
 
 def main():
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
     if len(sys.argv) < 2:
         print("Usage: python manifest_generator.py <github_repo> [app_name] [bin_name]")
         print("Example: python manifest_generator.py ikatson/rqbit rqbit rqbit.exe")
@@ -145,8 +151,14 @@ def main():
         print(f"\n🎉 Generated manifest for {repo}")
         print(f"Now run: git add {filename} && git commit -m 'Add {app_name}' && git push")
         
+    except requests.RequestException as e:
+        logging.error(f"Network error: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        logging.error(f"Validation error: {e}")
+        sys.exit(1)
     except Exception as e:
-        print(f"❌ Error: {e}")
+        logging.error(f"Unexpected error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
