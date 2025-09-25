@@ -68,7 +68,7 @@ class ScoopManifestGenerator:
                 win_assets['64bit'] = url
             elif re.search(r'x86', name):
                 win_assets['32bit'] = url
-            elif re.search(r'arm64|arm32|armv7', name):
+            elif re.search(r'arm64|arm32|armv7|386|686|linux|darwin|freebsd|macos', name):
                 continue
             else:
                 win_assets['unknown'] = url
@@ -83,7 +83,7 @@ class ScoopManifestGenerator:
         if not app_name:
             app_name = repo.split('/')[-1]
         if not bin_name:
-            bin_name = f"{app_name}.exe"
+            bin_name = f"{app_name.lower()}.exe"
         
         # Находим Windows ассеты
         windows_assets = self.find_windows_assets(release['assets'])
